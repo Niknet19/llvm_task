@@ -59,3 +59,72 @@ IR c оптимизацией O2:
 ![cfg_main](https://github.com/user-attachments/assets/598f342b-fb19-465f-9583-59baab315568)
 
 ![cfg_square](https://github.com/user-attachments/assets/d3bcf6e7-ab2c-430a-b726-004ee18ebf83)
+
+# Дополнительное задание
+
+## Задание 
+Напишите const double PI = 3.1415; и используйте в арифметике. Проанализируйте поведение с -constprop или -O2.
+
+## Код
+Напишем такой код:
+```
+#include <stdio.h>
+
+double calculate() {
+  const double pi = 3.1415;
+  double radius = 10.0;
+  double area = pi * radius * radius;  // Вычисление площади круга
+
+  return area;
+}
+
+double test() {
+  return 2.0 * 3.0;  // Должно стать 'ret double 6.0'
+}
+
+int main() {
+  double result = calculate();
+  printf("Result: %f\n", result);
+  return 0;
+}
+```
+## Компилируем IR
+Сначала скомпилируем без оптимизаций: `clang -O0clang -O0 -S -emit-llvm const.c -o const_unoptimized.ll`
+
+Получим такое IR:
+![изображение](https://github.com/user-attachments/assets/d78f1925-d4e3-40ac-8e96-3ba198e0fb4c)
+
+
+Теперь скомпилируем с оптимизацияеми уровня O2:
+`clang -O2 -S -emit-llvm const.c -o const_optimized_O2.ll`
+
+Получаем:
+![изображение](https://github.com/user-attachments/assets/a6e6ed12-56c2-4351-aef5-b6b8ce4318f1)
+
+## Выводы
+Без оптимизации все вычисления происходят как написано в коде:
+- Создаются три переменные на стеке (%1, %2, %3) для pi, radius и area.
+- Константы 3.1415 и 10.0 сохраняются в память (store).
+- Вычисления pi * radius * radius выполняются как две операции умножения (fmul):
+- Результат сохраняется в %3 и затем загружается для возврата (ret).
+
+После оптимизации
+```
+define dso_local noundef double @calculate() local_unnamed_addr #0 {
+  ret double 0x4073A26666666667
+}
+```
+В функции calculate:
+- Функция сократилась до одной инструкции: `ret double 0x4073A26666666667`.
+- Значение 0x4073A26666666667 — это шестнадцатеричное представление числа с плавающей точкой, равное 314.15.
+- Все промежуточные операции (alloca, store, load, fmul) исчезли.
+
+В функции main:
+```
+define dso_local noundef i32 @main() local_unnamed_addr #1 {
+  %1 = tail call i32 (ptr, ...) @printf(ptr noundef nonnull dereferenceable(1) @.str, double noundef 0x4073A26666666667)
+  ret i32 0
+}
+```
+- Вызов calculate исчез, а его результат (0x4073A26666666667) напрямую передан в printf (инлайнинг).
+- После инлайнинга LLVM увидел, что calculate возвращает константу и подставил это значение в printf.
